@@ -20,15 +20,38 @@ class BlazeBlock(nn.Module):
             padding = (kernel_size - 1) // 2
 
         self.convs = nn.Sequential(
-            nn.Conv2d(in_channels=in_channels, out_channels=in_channels,
-                      kernel_size=kernel_size, stride=stride, padding=padding,
-                      groups=in_channels, bias=True),
-            nn.Conv2d(in_channels=in_channels, out_channels=out_channels,
-                      kernel_size=1, stride=1, padding=0, bias=True),
+            nn.Conv2d(
+                in_channels=in_channels,
+                out_channels=in_channels,
+                kernel_size=kernel_size,
+                stride=stride,
+                padding=padding,
+                groups=in_channels,
+                bias=True,
+            ),
+            nn.Conv2d(
+                in_channels=in_channels,
+                out_channels=out_channels,
+                kernel_size=1,
+                stride=1,
+                padding=0,
+                bias=True,
+            ),
         )
 
-        self.act = nn.PReLU(inplace=True)
+        self.act = nn.PReLU(out_channels)
 
+    def forward(self, x):
+        if self.stride == 2:
+            h = F.pad(x, (1, 2, 1, 2), "constant", 0)
+            x = self.max_pool(x)
+        else:
+            h = x
+
+        if self.channel_pad > 0:
+            x = F.pad(x, (0, 0, 0, 0, 0, self.channel_pad), "constant", 0)
+
+        return self.act(self.convs(h) + x)
     def forward(self, x):
         if self.stride == 2:
             h = F.pad(x, (0, 2, 0, 2), "constant", 0)
@@ -91,13 +114,20 @@ class BlazePalm(nn.Module):
         self._define_layers()
 
     def _define_layers(self):
-        self.stage1 = nn.Sequential(
-            nn.Conv2d(in_channels=3, out_channels=32, kernel_size=5, stride=2, padding=0, bias=True),
-            nn.PReLU(inplace=True),
+       self.stage1 = nn.Sequential(
+            nn.Conv2d(
+                in_channels=3,
+                out_channels=32,
+                kernel_size=5,
+                stride=2,
+                padding=0,
+                bias=True,
+            ),
+            nn.PReLU(32),
             BlazeBlock(32, 32),
             BlazeBlock(32, 32),
             BlazeBlock(32, 32),
-            BlazeBlock(32, 64,stride=2),
+            BlazeBlock(32, 64, stride=2),
             BlazeBlock(64, 64),
             BlazeBlock(64, 64),
             BlazeBlock(64, 64),
@@ -119,10 +149,12 @@ class BlazePalm(nn.Module):
             BlazeBlock(256, 256),
             BlazeBlock(256, 256),
             BlazeBlock(256, 256),
-            #resize_bilinear
-            nn.Upsample(scale_factor=2, mode='bilinear',align_corners=False),
-            nn.Conv2d(in_channels=256, out_channels=256, kernel_size=1, padding=0, bias=True),
-            nn.PReLU(inplace=True),
+            # resize_bilinear
+            nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False),
+            nn.Conv2d(
+                in_channels=256, out_channels=256, kernel_size=1, padding=0, bias=True
+            ),
+            nn.PReLU(256),
         )
         self.stage5 = nn.Sequential(
             BlazeBlock(256, 256),
@@ -134,10 +166,10 @@ class BlazePalm(nn.Module):
         )
 
         self.deconv1 = nn.Sequential(
-            nn.Upsample(scale_factor=2, mode='bilinear',align_corners=False),
-            nn.Conv2d(256,128,kernel_size=1,stride=1),
-            nn.PReLU(inplace=True),
-            )
+            nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False),
+            nn.Conv2d(256, 128, kernel_size=1, stride=1),
+            nn.PReLU(128),
+        )
         
         self.convs1 =  nn.Conv2d(in_channels=128, out_channels=2,
                       kernel_size=1, stride=1, padding=0, bias=True)
@@ -178,7 +210,7 @@ class BlazePalm(nn.Module):
         h_1=x
 
         x_s3 = self.stage3(x)           # (b, 128, 32, 32)
-        x = self.stage4(x_s3) +x
+        x = self.stage4(x_s3) +x_s3
         x_s5 = self.stage5(x)
 
         x_d1=h_1+self.deconv1(x_s5)
